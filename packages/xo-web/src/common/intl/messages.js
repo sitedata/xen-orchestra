@@ -46,6 +46,9 @@ const messages = {
   delete: 'Delete',
   vms: 'VMs',
   metadata: 'Metadata',
+  user: 'User',
+  hash: 'Hash',
+  data: 'Data',
   chooseBackup: 'Choose a backup',
   clickToShowError: 'Click to show error',
   backupJobs: 'Backup jobs',
@@ -103,6 +106,7 @@ const messages = {
   notificationsPage: 'Notifications',
   supportPage: 'Support',
   settingsPage: 'Settings',
+  settingsAuditPage: 'Audit',
   settingsServersPage: 'Servers',
   settingsUsersPage: 'Users',
   settingsGroupsPage: 'Groups',
@@ -2198,6 +2202,10 @@ const messages = {
   recipeNumberOfNodesLabel: 'Number of nodes',
   recipeSshKeyLabel: 'SSH key',
   recipeNetworkCidr: 'Network CIDR',
+
+  // Audit
+  noAuditRecordAvailable: 'No audit record available',
+  auditActionEvent: 'Action/Event',
 
   // Licenses
   xosanUnregisteredDisclaimer:
