@@ -7,6 +7,8 @@
 
 > Users must be able to say: “Nice enhancement, I'm eager to test it”
 
+- [SDN Controller] New pools are detected by the plugin - Fixes [#4649](https://github.com/vatesfr/xen-orchestra/issues/4649) (PR [#4677](https://github.com/vatesfr/xen-orchestra/pull/4677))
+
 ### Bug fixes
 
 > Users must be able to say: “I had this issue, happy to know it's fixed”
@@ -18,5 +20,7 @@
 >
 > Rule of thumb: add packages on top.
 
+- xo-server-sdn-controller v0.3.1
 - xo-server v5.55.0
 - xo-web v5.55.0
+
