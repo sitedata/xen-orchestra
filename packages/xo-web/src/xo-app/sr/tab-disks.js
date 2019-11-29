@@ -6,19 +6,31 @@ import Component from 'base-component'
 import copy from 'copy-to-clipboard'
 import Icon from 'icon'
 import Link from 'link'
+import MigrateVdiModalBody from 'xo/migrate-vdi-modal'
 import PropTypes from 'prop-types'
 import React from 'react'
 import renderXoItem from 'render-xo-item'
 import SortedTable from 'sorted-table'
 import TabButton from 'tab-button'
+import { confirm } from 'modal'
 import { injectIntl } from 'react-intl'
 import { Text } from 'editable'
 import { SizeInput, Toggle } from 'form'
 import { Container, Row, Col } from 'grid'
 import { connectStore, formatSize, noop } from 'utils'
-import { concat, groupBy, isEmpty, map, mapValues, pick, some } from 'lodash'
+import {
+  concat,
+  groupBy,
+  isEmpty,
+  keyBy,
+  map,
+  mapValues,
+  pick,
+  some,
+} from 'lodash'
 import {
   createGetObjectsOfType,
+  createGetVmDisks,
   createSelector,
   getCheckPermissions,
 } from 'selectors'
@@ -33,7 +45,9 @@ import {
   exportVdi,
   importVdi,
   isVmRunning,
+  migrateVdi,
 } from 'xo'
+import { error } from 'notification'
 
 // ===================================================================
 
@@ -187,38 +201,6 @@ const GROUPED_ACTIONS = [
   },
 ]
 
-const INDIVIDUAL_ACTIONS = [
-  ...(process.env.XOA_PLAN > 1
-    ? [
-        {
-          disabled: ({ id, type }, { isVdiAttached }) =>
-            isVdiAttached[id] || type === 'VDI-unmanaged',
-          handler: importVdi,
-          icon: 'import',
-          label: _('importVdi'),
-        },
-        {
-          disabled: ({ type }) => type === 'VDI-unmanaged',
-          handler: exportVdi,
-          icon: 'export',
-          label: _('exportVdi'),
-        },
-      ]
-    : []),
-  {
-    handler: vdi => copy(vdi.uuid),
-    icon: 'clipboard',
-    label: vdi => _('copyUuid', { uuid: vdi.uuid }),
-  },
-  {
-    disabled: ({ type }) => type === 'VDI-unmanaged',
-    handler: deleteVdi,
-    icon: 'delete',
-    label: _('deleteSelectedVdi'),
-    level: 'danger',
-  },
-]
-
 const FILTERS = {
   filterOnlyManaged: 'type:!VDI-unmanaged',
   filterOnlyRegular: '!type:|(VDI-snapshot VDI-unmanaged)',
@@ -290,10 +272,83 @@ class NewDisk extends Component {
   }
 }
 
-@connectStore(() => ({
-  checkPermissions: getCheckPermissions,
-  vbds: createGetObjectsOfType('VBD'),
-}))
+@connectStore(() => {
+  const getAllVdis = createGetObjectsOfType('VDI')
+  const getSrs = createGetObjectsOfType('SR')
+  const getVbds = createGetObjectsOfType('VBD')
+
+  const getVdisById = createSelector(
+    (_, props) => props.vdis,
+    vdis => keyBy(vdis, 'id')
+  )
+
+  const getVbdsByVdi = createSelector(
+    createSelector(getVbds, vbds => keyBy(vbds, 'id')),
+    createSelector(getVdisById, vdis => mapValues(vdis, '$VBDs')),
+    (vbds, vbdIdsByVdi) =>
+      mapValues(vbdIdsByVdi, vbdIds => map(vbdIds, vbdId => vbds[vbdId]))
+  )
+
+  const getVmIdsByVdi = createSelector(getVbdsByVdi, vbdsByVdi =>
+    mapValues(vbdsByVdi, vbds => map(vbds, 'VM'))
+  )
+
+  const getVmsByVdi = createSelector(
+    createGetObjectsOfType('VM'),
+    getVmIdsByVdi,
+    (vms, vmIdsByVdi) => mapValues(vmIdsByVdi, vmIds => pick(vms, vmIds))
+  )
+
+  const getVmControllersByVdi = createSelector(
+    createGetObjectsOfType('VM-controller'),
+    getVmIdsByVdi,
+    (vmControllers, vmIdsByVdi) =>
+      mapValues(vmIdsByVdi, vmIds => pick(vmControllers, vmIds))
+  )
+
+  const getVmSnapshotsByVdi = createSelector(
+    createGetObjectsOfType('VM-snapshot'),
+    getVmIdsByVdi,
+    (vmSnapshots, vmIdsByVdi) =>
+      mapValues(vmIdsByVdi, vmIds => pick(vmSnapshots, vmIds))
+  )
+
+  const getVmTemplatesByVdi = createSelector(
+    createGetObjectsOfType('VM-snapshot'),
+    getVmIdsByVdi,
+    (vmTemplates, vmIdsByVdi) =>
+      mapValues(vmIdsByVdi, vmIds => pick(vmTemplates, vmIds))
+  )
+
+  const getAllVmsByVdi = createSelector(
+    getVdisById,
+    getVmsByVdi,
+    getVmControllersByVdi,
+    getVmSnapshotsByVdi,
+    getVmTemplatesByVdi,
+    (
+      vdisById,
+      vmsByVdi,
+      vmControllersByVdi,
+      vmSnapshotsByVdi,
+      vmTemplatesByVdi
+    ) =>
+      mapValues(vdisById, ({ id }) => ({
+        ...vmsByVdi[id],
+        ...vmControllersByVdi[id],
+        ...vmSnapshotsByVdi[id],
+        ...vmTemplatesByVdi[id],
+      }))
+  )
+
+  return {
+    checkPermissions: getCheckPermissions,
+    vbds: getVbds,
+    allVmsByVdi: getAllVmsByVdi,
+    allVdis: getAllVdis,
+    srs: getSrs,
+  }
+})
 export default class SrDisks extends Component {
   _closeNewDiskForm = () => this.setState({ newDisk: false })
 
@@ -318,6 +373,123 @@ export default class SrDisks extends Component {
     ),
     vbdsByVdi => mapValues(vbdsByVdi, vbds => some(vbds, 'attached'))
   )
+
+  getVmVdis = createSelector(
+    () => this.props.allVmsByVdi,
+    vmsByVdi => mapValues(vmsByVdi, vms => map(vms, ''))
+  )
+
+  /*
+  _getVdiSrs = createSelector(
+    () => this.props.vdis,
+    createCollectionWrapper(vdis => sortedUniq(map(vdis, '$SR').sort()))
+  )
+
+  _areSrsOnSameHost = createSelector(
+    this._getVdiSrs,
+    () => this.props.srs,
+    (vdiSrs, srs) => {
+      if (some(vdiSrs, srId => srs[srId] === undefined)) {
+        return true // the user doesn't have permissions on one of the SRs: no warning
+      }
+      let container
+      let sr
+      return every(vdiSrs, srId => {
+        sr = srs[srId]
+        if (isSrShared(sr)) {
+          return true
+        }
+        return container === undefined
+          ? ((container = sr.$container), true)
+          : container === sr.$container
+      })
+    }
+  )
+
+  _getRequiredHost = createSelector(
+    this._areSrsOnSameHost,
+    this._getVdiSrs,
+    () => this.props.srs,
+    (areSrsOnSameHost, vdiSrs, srs) => {
+      if (!areSrsOnSameHost) {
+        return
+      }
+
+      let container
+      let sr
+      forEach(vdiSrs, srId => {
+        sr = srs[srId]
+        if (sr !== undefined && !isSrShared(sr)) {
+          container = sr.$container
+          return false
+        }
+      })
+      return container
+    }
+  )
+
+  _getCheckSr = createSelector(this._getRequiredHost, requiredHost => sr =>
+    sr === undefined ||
+    isSrShared(sr) ||
+    requiredHost === undefined ||
+    sr.$container === requiredHost
+  ) */
+
+  _migrateVdi = vdi => {
+    return confirm({
+      title: _('vdiMigrate'),
+      body: (
+        <MigrateVdiModalBody
+          // checkSr={this._getCheckSr()}
+          pool={this.props.sr.$pool}
+        />
+      ),
+    }).then(({ sr, migrateAll }) => {
+      if (!sr) {
+        return error(_('vdiMigrateNoSr'), _('vdiMigrateNoSrMessage'))
+      }
+      return migrateAll
+        ? Promise.all(map(this.props.vdis, vdi => migrateVdi(vdi, sr)))
+        : migrateVdi(vdi, sr)
+    })
+  }
+
+  individualActions = [
+    ...(process.env.XOA_PLAN > 1
+      ? [
+          {
+            disabled: ({ id, type }, { isVdiAttached }) =>
+              isVdiAttached[id] || type === 'VDI-unmanaged',
+            handler: importVdi,
+            icon: 'import',
+            label: _('importVdi'),
+          },
+          {
+            disabled: ({ type }) => type === 'VDI-unmanaged',
+            handler: exportVdi,
+            icon: 'export',
+            label: _('exportVdi'),
+          },
+        ]
+      : []),
+    {
+      handler: this._migrateVdi,
+      icon: 'vdi-migrate',
+      label: _('vdiMigrate'),
+    },
+    {
+      handler: vdi => copy(vdi.uuid),
+      icon: 'clipboard',
+      label: vdi => _('copyUuid', { uuid: vdi.uuid }),
+    },
+    {
+      disabled: ({ type }) => type === 'VDI-unmanaged',
+      handler: deleteVdi,
+      icon: 'delete',
+      label: _('deleteSelectedVdi'),
+      level: 'danger',
+    },
+  ]
 
   render() {
     const vdis = this._getAllVdis()
@@ -352,10 +524,12 @@ export default class SrDisks extends Component {
                 collection={vdis}
                 columns={COLUMNS}
                 data-isVdiAttached={this._getIsVdiAttached()}
+                data-allVmsByVdi={this.props.allVmsByVdi}
+                data-sr={this.props.sr}
                 defaultFilter='filterOnlyManaged'
                 filters={FILTERS}
                 groupedActions={GROUPED_ACTIONS}
-                individualActions={INDIVIDUAL_ACTIONS}
+                individualActions={this.individualActions}
                 shortcutsTarget='body'
                 stateUrlParam='s'
               />
