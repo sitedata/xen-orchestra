@@ -36,7 +36,7 @@ const returnTrue = () => true
   hosts: createGetObjectsOfType('host'),
 }))
 class MissingPatchWarning extends Component {
-  state: { haveMissingPatches: false }
+  state: { hasMissingPatches: false }
 
   componentWillMount() {
     this._subscribeMissingPatches()
@@ -48,16 +48,16 @@ class MissingPatchWarning extends Component {
 
   componentDidUpdate(prevProps) {
     if (!isEqual(prevProps.hosts, this.props.hosts)) {
-      this.setState({ haveMissingPatches: false })
+      this.setState({ hasMissingPatches: false })
       this._subscribeMissingPatches()
     }
   }
 
-  _subscribeMissingPatches = (hosts = this.props.hosts) => {
-    const unsubs = map(hosts, host =>
+  _subscribeMissingPatches = () => {
+    const unsubs = map(this.props.hosts, host =>
       subscribeHostMissingPatches(host, patches => {
         if (!isEmpty(patches)) {
-          this.setState({ haveMissingPatches: true })
+          this.setState({ hasMissingPatches: true })
         }
       })
     )
@@ -70,7 +70,7 @@ class MissingPatchWarning extends Component {
   }
 
   render() {
-    return this.state.haveMissingPatches ? (
+    return this.state.hasMissingPatches ? (
       <span>
         <Tooltip content={_('homeMissingPatches')}>
           <span className='text-warning'>
