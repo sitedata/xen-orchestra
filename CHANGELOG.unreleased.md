@@ -11,6 +11,8 @@
 
 > Users must be able to say: “I had this issue, happy to know it's fixed”
 
+- [SDN Controller] Ensure the correct PIF is used to create private networks tunnels - Fixes [#4737](https://github.com/vatesfr/xen-orchestra/issues/4737)
+
 ### Released packages
 
 > Packages will be released in the order they are here, therefore, they should
