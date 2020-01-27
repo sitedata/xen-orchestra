@@ -323,6 +323,8 @@ create.params = {
 
   hvmBootFirmware: { type: 'string', optional: true },
 
+  copyHostBiosStrings: { type: 'boolean', optional: true },
+
   // other params are passed to `editVm`
   '*': { type: 'any' },
 }
