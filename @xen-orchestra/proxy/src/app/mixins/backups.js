@@ -11,18 +11,18 @@ import limitConcurrency from 'limit-concurrency-decorator'
 import pump from 'pump'
 // import pumpify from 'pumpify'
 import using from 'promise-toolbox/using'
-import watchStreamSize from '@xen-orchestra/backups/watchStreamSize'
 import { basename, dirname, resolve } from 'path'
 import { compileTemplate } from '@xen-orchestra/template'
 import { createLogger } from '@xen-orchestra/log'
 import { extractIdsFromSimplePattern } from '@xen-orchestra/backups/extractIdsFromSimplePattern'
+// import { finally } from 'promise-toolbox'
 import { formatDateTime, Xapi } from '@xen-orchestra/xapi'
 import { formatFilenameDate } from '@xen-orchestra/backups/filenameDate'
 import { getHandler } from '@xen-orchestra/fs'
 import { getOldEntries } from '@xen-orchestra/backups/getOldEntries'
 import { isValidXva } from '@xen-orchestra/backups/isValidXva'
 import { PassThrough } from 'stream'
-// import { finally } from 'promise-toolbox'
+import { watchStreamSize } from '@xen-orchestra/backups/watchStreamSize'
 
 // import { decorateWith } from '../../_decorateWith'
 // import { parseDuration } from '../../_parseDuration'
@@ -266,11 +266,7 @@ class FullSrWriter {
     }
     const targetVm = await xapi.getRecord(
       'VM',
-      await xapi.VM_import(stream, sr.$ref, targetVm =>
-        targetVm.set_name_label(
-          `${vm.name_label} - ${job.name} - (${formatFilenameDate(timestamp)})`
-        )
-      )
+      await xapi.VM_import(stream, sr.$ref)
     )
 
     await Promise.all([
@@ -280,6 +276,9 @@ class FullSrWriter {
           targetVm.set_ha_restart_priority(''),
           targetVm.add_tags('HA disabled'),
         ]),
+      targetVm.set_name_label(
+        `${vm.name_label} - ${job.name} - (${formatFilenameDate(timestamp)})`
+      ),
       targetVm.update_blocked_operations(
         'start',
         'Start operation for this vm is blocked, clone it if you want to use it.'
@@ -333,7 +332,7 @@ class VmBackup {
   // copied on manual snapshots and interfere with the backup jobs
   async _cleanMetadata() {
     const { vm } = this
-    debug('clean metadata', { vm })
+    // debug('clean metadata', { vm })
 
     if ('xo:backup:job' in vm.other_config) {
       await vm.update_other_config({
@@ -355,7 +354,7 @@ class VmBackup {
 
     const doSnapshot = isRunning || settings.snapshotRetention !== 0
     if (doSnapshot) {
-      debug('snapshot', { vm })
+      // debug('snapshot', { vm })
 
       if (!settings.bypassVdiChainsCheck) {
         await vm.$assertHealthyVdiChains()
@@ -394,7 +393,7 @@ class VmBackup {
       Promise.all(
         this.srs.map(async sr => {
           try {
-            debug('DR', { sr, vm })
+            // debug('DR', { sr, vm })
             await new FullSrWriter(this, sr, {
               ...settings,
               ...allSettings[sr.uuid],
@@ -433,9 +432,7 @@ class VmBackup {
       ),
     ])
 
-    debug('backup finished', {
-      transferredSize: sizeContainer.size,
-    })
+    return sizeContainer.size
   }
 
   async _removeUnusedSnapshots() {
@@ -490,7 +487,7 @@ class VmBackup {
         ignoreErrors.call(vm.$callAsync('start', false, false))
       }
 
-      await this._copyFull()
+      return { transferredSize: await this._copyFull() }
     } finally {
       if (startAfter) {
         ignoreErrors.call(vm.$callAsync('start', false, false))

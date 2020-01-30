@@ -39,6 +39,8 @@ const { defineProperties, defineProperty, freeze, keys: getKeys } = Object
 
 export const NULL_REF = 'OpaqueRef:NULL'
 
+export { isOpaqueRef }
+
 // -------------------------------------------------------------------
 
 const RESERVED_FIELDS = {
@@ -1084,12 +1086,10 @@ export class Xapi extends EventEmitter {
         Object.getOwnPropertyNames(object).forEach(name => {
           // dont trigger getters (eg sessionId)
           const fn = Object.getOwnPropertyDescriptor(object, name).value
-          if (
-            typeof fn === 'function' &&
-            name.startsWith(type + '_') &&
-            !(name in props)
-          ) {
-            props['$' + name] = function(...args) {
+          if (typeof fn === 'function' && name.startsWith(type + '_')) {
+            const key = '$' + name.slice(type.length + 1)
+            assert.strictEqual(props[key], undefined)
+            props[key] = function(...args) {
               return xapi[name](this.$ref, ...args)
             }
           }

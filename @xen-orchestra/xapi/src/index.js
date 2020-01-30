@@ -1,3 +1,4 @@
+const assert = require('assert')
 const { utcFormat, utcParse } = require('d3-time-format')
 const { Xapi: Base } = require('xen-api')
 
@@ -19,22 +20,24 @@ class Xapi extends Base {
 function mixin(mixins) {
   const xapiProto = Xapi.prototype
   const {
-    defineProperty,
+    defineProperties,
     getOwnPropertyDescriptor,
     getOwnPropertyNames,
   } = Object
+  const descriptors = { __proto__: null }
   Object.keys(mixins).forEach(prefix => {
     const mixinProto = mixins[prefix].prototype
     getOwnPropertyNames(mixinProto)
       .filter(_ => _ !== 'constructor')
       .forEach(name => {
-        defineProperty(
-          xapiProto,
-          `${prefix}_${name}`,
-          getOwnPropertyDescriptor(mixinProto, name)
-        )
+        const key = name[0] === '_' ? name : `${prefix}_${name}`
+
+        assert(!(key in descriptors), `${key} is already defined`)
+
+        descriptors[key] = getOwnPropertyDescriptor(mixinProto, name)
       })
   })
+  defineProperties(xapiProto, descriptors)
 }
 mixin({
   VDI: require('./vdi'),

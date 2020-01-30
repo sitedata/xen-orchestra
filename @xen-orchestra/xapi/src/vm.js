@@ -11,11 +11,12 @@ const isValidRef = require('./_isValidRef')
 const isVmRunning = require('./_isVmRunning')
 
 module.exports = class Vm {
-  async _assertHealthVdiChain(vdiRef, cache, tolerance) {
+  async _assertHealthyVdiChain(vdiRef, cache, tolerance) {
     let vdi = cache[vdiRef]
     if (vdi === undefined) {
       vdi = await this.getRecord('VDI', vdiRef)
       cache[vdiRef] = vdi
+      cache[vdi.uuid] = vdi
     }
 
     if (!vdi.managed) {
@@ -30,6 +31,7 @@ module.exports = class Vm {
               if (vdi === undefined) {
                 vdi = await this.getRecord('VDI', vdiRef)
                 cache[vdiRef] = vdi
+                cache[vdi.uuid] = vdi
               }
               return vdi
             })
@@ -50,20 +52,30 @@ module.exports = class Vm {
       }
     }
 
-    const parent = vdi.sm_config['vhd-parent']
-    if (parent !== undefined) {
-      return this._assertHealthVdiChain(parent, cache, tolerance)
+    const parentUuid = vdi.sm_config['vhd-parent']
+    if (parentUuid !== undefined) {
+      let parent = cache[parentUuid]
+      if (parent === undefined) {
+        parent = await this.getRecordByUuid('VDI', parentUuid)
+        cache[parent.$ref] = parent
+        cache[parentUuid] = parent
+      }
+      return this._assertHealthyVdiChain(parent.$ref, cache, tolerance)
     }
   }
 
   async assertHealthyVdiChains(vmRef, tolerance = this._maxUncoalescedVdis) {
     const vdiRefs = {}
-    ;(await this.getField('VM', vmRef, 'VBDs')).forEach(vbd => {
-      vdiRefs[vbd.VDI] = true
+    ;(
+      await this.getRecords('VBD', await this.getField('VM', vmRef, 'VBDs'))
+    ).forEach(({ VDI: ref }) => {
+      if (isValidRef(ref)) {
+        vdiRefs[ref] = true
+      }
     })
     const cache = { __proto__: null }
     for (const vdiRef of Object.keys(vdiRefs)) {
-      await this.assertHealthChain(vdiRef, cache, tolerance)
+      await this._assertHealthyVdiChain(vdiRef, cache, tolerance)
     }
   }
 
@@ -244,7 +256,7 @@ module.exports = class Vm {
 
   @cancelable
   async snapshot($cancelToken, vmRef, nameLabel) {
-    const vm = this.getRecord('VM', vmRef)
+    const vm = await this.getRecord('VM', vmRef)
     if (nameLabel === undefined) {
       nameLabel = vm.name_label
     }
