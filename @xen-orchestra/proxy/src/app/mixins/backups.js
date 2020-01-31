@@ -592,7 +592,8 @@ export default class Backups {
     app.api.addMethods({
       backup: {
         run: [
-          ({ xapis: xapisOptions, ...rest }) => {
+          async ({ xapis: xapisOptions, ...rest }) => {
+            const xapis = []
             async function createConnectedXapi(id) {
               const {
                 credentials: { username: user, password },
@@ -606,10 +607,17 @@ export default class Backups {
                   password,
                 },
               })
+              xapis.push(xapi)
               await xapi.connect()
               await xapi.objectsFetched
               return xapi
             }
+            async function disconnectAllXapis() {
+              const promises = xapis.map(xapi => xapi.disconnect())
+              xapis.length = 0
+              await Promise.all(promises)
+            }
+            app.hooks.on('stop', disconnectAllXapis)
 
             const connectedXapis = { __proto__: null }
             function getConnectedXapi(id) {
@@ -621,11 +629,16 @@ export default class Backups {
               return connectedXapi
             }
 
-            return new Backup({
-              ...rest,
-              config,
-              getConnectedXapi,
-            }).run()
+            try {
+              await new Backup({
+                ...rest,
+                config,
+                getConnectedXapi,
+              }).run()
+            } finally {
+              app.hooks.removeListener('stop', disconnectAllXapis)
+              ignoreErrors.call(disconnectAllXapis)
+            }
           },
           {
             description: 'run a backup job',
