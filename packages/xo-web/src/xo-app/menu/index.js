@@ -1,6 +1,7 @@
 import _ from 'intl'
 import classNames from 'classnames'
 import Component from 'base-component'
+import defined from '@xen-orchestra/defined'
 import Icon from 'icon'
 import Link from 'link'
 import React from 'react'
@@ -36,7 +37,7 @@ const returnTrue = () => true
   hosts: createGetObjectsOfType('host'),
 }))
 class MissingPatchWarning extends Component {
-  state: { hasMissingPatches: false }
+  state: { nMissingPatches: 0 }
 
   componentWillMount() {
     this._subscribeMissingPatches()
@@ -48,7 +49,6 @@ class MissingPatchWarning extends Component {
 
   componentDidUpdate(prevProps) {
     if (!isEqual(prevProps.hosts, this.props.hosts)) {
-      this.setState({ hasMissingPatches: false })
       this._subscribeMissingPatches()
     }
   }
@@ -56,9 +56,10 @@ class MissingPatchWarning extends Component {
   _subscribeMissingPatches = () => {
     const unsubs = map(this.props.hosts, host =>
       subscribeHostMissingPatches(host, patches => {
-        if (!isEmpty(patches)) {
-          this.setState({ hasMissingPatches: true })
-        }
+        this.setState({
+          nMissingPatches:
+            +defined(this.state.nMissingPatches, 0) + patches.length,
+        })
       })
     )
 
@@ -70,7 +71,7 @@ class MissingPatchWarning extends Component {
   }
 
   render() {
-    return this.state.hasMissingPatches ? (
+    return this.state.nMissingPatches > 0 ? (
       <span>
         <Tooltip content={_('homeMissingPatches')}>
           <span className='text-warning'>
