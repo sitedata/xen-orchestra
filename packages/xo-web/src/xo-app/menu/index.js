@@ -1,7 +1,6 @@
 import _ from 'intl'
 import classNames from 'classnames'
 import Component from 'base-component'
-import defined from '@xen-orchestra/defined'
 import Icon from 'icon'
 import Link from 'link'
 import React from 'react'
@@ -27,76 +26,30 @@ import {
   getXoaState,
   isAdmin,
 } from 'selectors'
-import { every, forEach, identity, isEmpty, isEqual, map } from 'lodash'
+import { every, forEach, identity, isEmpty, isEqual, map, size } from 'lodash'
 
 import styles from './index.css'
 
 const returnTrue = () => true
 
-@connectStore(() => ({
-  hosts: createGetObjectsOfType('host'),
-}))
-class MissingPatchWarning extends Component {
-  state: { nMissingPatches: 0 }
-
-  componentWillMount() {
-    this._subscribeMissingPatches()
-  }
-
-  componentWillUnmount() {
-    this.unsubscribeMissingPatches()
-  }
-
-  componentDidUpdate(prevProps) {
-    if (!isEqual(prevProps.hosts, this.props.hosts)) {
-      this._subscribeMissingPatches()
-    }
-  }
-
-  _subscribeMissingPatches = () => {
-    const unsubs = map(this.props.hosts, host =>
-      subscribeHostMissingPatches(host, patches => {
-        this.setState({
-          nMissingPatches:
-            +defined(this.state.nMissingPatches, 0) + patches.length,
-        })
-      })
-    )
-
-    if (this.unsubscribeMissingPatches !== undefined) {
-      this.unsubscribeMissingPatches()
-    }
-
-    this.unsubscribeMissingPatches = () => forEach(unsubs, unsub => unsub())
-  }
-
-  render() {
-    return this.state.nMissingPatches > 0 ? (
-      <span>
-        <Tooltip content={_('homeMissingPatches')}>
-          <span className='text-warning'>
-            <Icon icon='alarm' />
-          </span>
-        </Tooltip>
-      </span>
-    ) : null
-  }
-}
-
 @connectStore(
-  () => ({
-    isAdmin,
-    isPoolAdmin: getIsPoolAdmin,
-    nHosts: createGetObjectsOfType('host').count(),
-    nTasks: createGetObjectsOfType('task').count([
-      task => task.status === 'pending',
-    ]),
-    pools: createGetObjectsOfType('pool'),
-    srs: createGetObjectsOfType('SR'),
-    status: getStatus,
-    user: getUser,
-    xoaState: getXoaState,
-  }),
+  () => {
+    const getHosts = createGetObjectsOfType('host')
+    return {
+      hosts: getHosts,
+      isAdmin,
+      isPoolAdmin: getIsPoolAdmin,
+      nHosts: createSelector(getHosts, size),
+      nTasks: createGetObjectsOfType('task').count([
+        task => task.status === 'pending',
+      ]),
+      pools: createGetObjectsOfType('pool'),
+      srs: createGetObjectsOfType('SR'),
+      status: getStatus,
+      user: getUser,
+      xoaState: getXoaState,
+    }
+  },
   {
     withRef: true,
   }
@@ -118,10 +71,20 @@ export default class Menu extends Component {
       window.removeEventListener('resize', updateCollapsed)
       this._removeListener = noop
     }
+
+    this._subscribeMissingPatches()
   }
 
   componentWillUnmount() {
     this._removeListener()
+    this.unsubscribeMissingPatches()
+  }
+
+  componentDidUpdate(prevProps) {
+    if (!isEqual(prevProps.hosts, this.props.hosts)) {
+      this.setState({ nMissingPatches: 0 })
+      this._subscribeMissingPatches()
+    }
   }
 
   _checkPermissions = createSelector(
@@ -165,6 +128,22 @@ export default class Menu extends Component {
     return signOut()
   }
 
+  _subscribeMissingPatches = () => {
+    const unsubs = map(this.props.hosts, host =>
+      subscribeHostMissingPatches(host, patches => {
+        this.setState(({ nMissingPatches = 0 }) => ({
+          nMissingPatches: nMissingPatches + patches.length,
+        }))
+      })
+    )
+
+    if (this.unsubscribeMissingPatches !== undefined) {
+      this.unsubscribeMissingPatches()
+    }
+
+    this.unsubscribeMissingPatches = () => forEach(unsubs, unsub => unsub())
+  }
+
   render() {
     const {
       isAdmin,
@@ -180,6 +159,16 @@ export default class Menu extends Component {
     const noOperatablePools = this._getNoOperatablePools()
     const noResourceSets = this._getNoResourceSets()
     const noNotifications = this._getNoNotifications()
+    const missingPatchWarning =
+      this.state.nMissingPatches > 0 ? (
+        <span>
+          <Tooltip content={_('homeMissingPatches')}>
+            <span className='text-warning'>
+              <Icon icon='alarm' />
+            </span>
+          </Tooltip>
+        </span>
+      ) : null
 
     /* eslint-disable object-property-newline */
     const items = [
@@ -187,7 +176,7 @@ export default class Menu extends Component {
         to: '/home',
         icon: 'menu-home',
         label: 'homePage',
-        extra: [<MissingPatchWarning />],
+        extra: [missingPatchWarning],
         subMenu: [
           { to: '/home?t=VM', icon: 'vm', label: 'homeVmPage' },
           nHosts !== 0 && {
@@ -199,7 +188,7 @@ export default class Menu extends Component {
             to: '/home?t=pool',
             icon: 'pool',
             label: 'homePoolPage',
-            extra: [<MissingPatchWarning />],
+            extra: [missingPatchWarning],
           },
           isAdmin && {
             to: '/home?t=VM-template',
